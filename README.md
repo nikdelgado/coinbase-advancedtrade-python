@@ -193,10 +193,10 @@ To set up AWS SNS
 3. Pass the SNS topic ARN when intializing AlphaSquaredTrader.
 
 ```python
-# Replace with our AWS SNS Topic ARN
+# Replace with your AWS SNS Topic ARN
 SNS_TOPIC_ARN = "arn:aws:sns:us-east-1:123456789012:TradeAlerts"
 
-# Initialize the AlphaSquaredTrader with you SNS Topic ARN
+# Initialize the AlphaSquaredTrader with your SNS Topic ARN
 trader = AlphaSquaredTrader(coinbase_client, alphasquared_client, sns_topic_arn)
 ```
 
