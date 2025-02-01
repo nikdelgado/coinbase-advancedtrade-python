@@ -184,7 +184,7 @@ This will:
 
 > **Note:** Make sure to handle exceptions and implement proper logging in your production code. This integration only works with custom strategies; it does not work with the default strategies provided by AlphaSquared.
 
-### Enable Trade Email Alerts
+### Enable Trade Alerts
 You can recieve instant trade notificaitons via AWS SNS (Simple Notification Service).
 
 To set up AWS SNS
