@@ -1,15 +1,25 @@
 from decimal import Decimal, ROUND_DOWN
 import logging
 from .enhanced_rest_client import EnhancedRESTClient
+from .sns_notifier import SNSNotifier
 from alphasquared import AlphaSquared
 from coinbase_advanced_trader.models import Order
 
 logger = logging.getLogger(__name__)
 
 class AlphaSquaredTrader:
-    def __init__(self, coinbase_client: EnhancedRESTClient, alphasquared_client: AlphaSquared):
+    def __init__(self, coinbase_client: EnhancedRESTClient, alphasquared_client: AlphaSquared, sns_topic_arn=None):
+        """
+        Initializes the AlphaSquaredTrader.
+
+        :param coinbase_client: The Coinbase API client.
+        :param alphasquared_client: The AlphaSquared API client.
+        :param sns_topic_arn: (Optional) The AWS SNS Topic ARN for trade notifications.
+                              If None, SNS notifications will be disabled.
+        """
         self.coinbase_client = coinbase_client
         self.alphasquared_client = alphasquared_client
+        self.sns_notifier = SNSNotifier(sns_topic_arn) if sns_topic_arn else None
 
     def execute_strategy(self, product_id: str, strategy_name: str):
         try:
@@ -36,40 +46,58 @@ class AlphaSquaredTrader:
             logger.error(f"Error in execute_strategy: {str(e)}")
             logger.exception("Full traceback:")
 
+    def _send_trade_notification(self, trade_type: str, asset: str, amount: str, price: str):
+        """
+        Sends an SNS notification for trade execution.
+        """
+        if self.sns_notifier:
+            try:
+                response = self.sns_notifier.send_notification(
+                    subject=f"Trade Executed - {trade_type} Order",
+                    message=f"{trade_type} {amount} {asset} at ${price}"
+                )
+                logger.info(f"SNS Notification Sent: {response}")
+            except Exception as e:
+                logger.error(f"Failed to send SNS notification for {trade_type} order: {str(e)}")
+
     def _execute_buy(self, product_id: str, value: float):
         try:
             order = self.coinbase_client.fiat_limit_buy(product_id, str(value), price_multiplier="0.995")
-            if isinstance(order, Order):
-                logger.info(f"Buy limit order placed: ID={order.id}, Size={order.size}, Price={order.price}")
-            else:
-                logger.warning(f"Unexpected order response type: {type(order)}")
+            if not order:
+                logger.error("Coinbase API returned None for buy order. Skipping.")
+                return
+            
+            self._send_trade_notification("Buy", product_id.split('-')[0], order.size, order.price)
+            logger.info(f"Buy limit order placed: ID={order.id}, Size={order.size}, Price={order.price}")
+            
         except Exception as e:
             logger.error(f"Error placing buy order: {str(e)}")
             logger.exception("Full traceback:")
 
     def _execute_sell(self, product_id, asset, base_currency, value):
-        balance = Decimal(self.coinbase_client.get_crypto_balance(asset))
-        logger.info(f"Current {asset} balance: {balance}")
-        
-        product_details = self.coinbase_client.get_product(product_id)
-        base_increment = Decimal(product_details['base_increment'])
-        quote_increment = Decimal(product_details['quote_increment'])
-        current_price = Decimal(product_details['price'])
-        logger.info(f"Current {asset} price: {current_price} {base_currency}")
+        try:
+            balance = self.coinbase_client.get_crypto_balance(asset)
+            if balance is None:
+                logger.error(f"Failed to retrieve balance for {asset}. Aborting sell order.")
+                return
+            
+            product_details = self.coinbase_client.get_product(product_id)
+            if not product_details or 'base_increment' not in product_details:
+                logger.error(f"Invalid product details for {product_id}. Cannot proceed with sell order.")
+                return
 
-        sell_amount = (balance * Decimal(value) / Decimal('100')).quantize(base_increment, rounding=ROUND_DOWN)
-        logger.info(f"Sell amount: {sell_amount} {asset}")
-
-        if sell_amount > base_increment:
-            limit_price = (current_price * Decimal('1.005')).quantize(quote_increment, rounding=ROUND_DOWN)
+            sell_amount = (Decimal(balance) * Decimal(value) / Decimal('100')).quantize(Decimal(product_details['base_increment']), rounding=ROUND_DOWN)
             
             order = self.coinbase_client.limit_order_gtc_sell(
                 client_order_id=self.coinbase_client._order_service._generate_client_order_id(),
                 product_id=product_id,
                 base_size=str(sell_amount),
-                limit_price=str(limit_price)
+                limit_price=str(Decimal(product_details['price']) * Decimal('1.005'))
             )
-            
-            logger.info(f"Sell limit order placed for {sell_amount} {asset} at {limit_price} {base_currency}: {order}")
-        else:
-            logger.info(f"Sell amount {sell_amount} {asset} is too small. Minimum allowed is {base_increment}. No order placed.")
+
+            self._send_trade_notification("Sell", asset, str(sell_amount), str(order.limit_price))
+            logger.info(f"Sell limit order placed: {order}")
+        
+        except Exception as e:
+            logger.error(f"Error placing sell order: {str(e)}")
+            logger.exception("Full traceback:")

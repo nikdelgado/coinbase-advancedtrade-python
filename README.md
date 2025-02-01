@@ -184,6 +184,24 @@ This will:
 
 > **Note:** Make sure to handle exceptions and implement proper logging in your production code. This integration only works with custom strategies; it does not work with the default strategies provided by AlphaSquared.
 
+### Enable Trade Email Alerts
+You can recieve instant trade notificaitons via AWS SNS (Simple Notification Service).
+
+To set up AWS SNS
+1. Create an SNS topic in the AWS SNS Console.
+2. Subscribe your email or phone number to the topic
+3. Pass the SNS topic ARN when intializing AlphaSquaredTrader.
+
+```python
+# Replace with our AWS SNS Topic ARN
+SNS_TOPIC_ARN = "arn:aws:sns:us-east-1:123456789012:TradeAlerts"
+
+# Initialize the AlphaSquaredTrader with you SNS Topic ARN
+trader = AlphaSquaredTrader(coinbase_client, alphasquared_client, sns_topic_arn)
+```
+
+Now, every trade executed will trigger a notification via SNS.
+
 ### Customizing Strategies
 
 You can create custom strategies by modifying the `execute_strategy` method in the `AlphaSquaredTrader` class. This allows you to define specific trading logic based on the risk levels provided by AlphaSquared.

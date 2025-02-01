@@ -6,3 +6,4 @@ cryptography >= 42.0.4
 cffi
 alphasquared-py >= 0.3.0
 fear-and-greed-crypto >= 0.1.0
+boto3
